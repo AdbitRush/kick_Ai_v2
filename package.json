@@ -1,0 +1,15 @@
+{
+  "name": "kick-and-backoff",
+  "version": "1.0.0",
+  "description": "Kickbacks arbitrage engine — free model proxy + multi-instance runner + financial tracking",
+  "scripts": {
+    "proxy":     "python3 proxy/arbitrage.py",
+    "dashboard": "python3 tracker/dashboard.py",
+    "health":    "python3 scripts/health.py",
+    "report":    "python3 tracker/cost_report.py",
+    "snapshot":  "python3 tracker/current_cost_report.py"
+  },
+  "dependencies": {
+    "playwright": "^1.60.0"
+  }
+}

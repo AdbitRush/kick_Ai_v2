@@ -1,0 +1,21 @@
+{
+  "thinkSec": {
+    "DEEP": [180, 300],
+    "MED":  [120, 210],
+    "QK":   [60,  120]
+  },
+  "brakeSec": {
+    "DEEP": [30, 90],
+    "MED":  [20, 60],
+    "QK":   [10, 30]
+  },
+  "pauseSec": {
+    "min": 120,
+    "max": 240
+  },
+  "longPause": {
+    "interval": 20,
+    "min": 900,
+    "max": 1800
+  }
+}
