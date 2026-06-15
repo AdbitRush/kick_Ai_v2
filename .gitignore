@@ -1,0 +1,8 @@
+node_modules/
+*.jsonl
+*.log
+__pycache__/
+*.pyc
+.env
+.env.*
+kickbacks_settings.env
