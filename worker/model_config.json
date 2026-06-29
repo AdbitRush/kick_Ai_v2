@@ -1,0 +1,7 @@
+{
+  "default_model": "nvidia/nemotron-3-ultra-550b-a55b:free",
+  "paid_models": {
+    "gpt4o": "openrouter/openai/gpt-4o",
+    "claude3sonnet": "anthropic/claude-3-sonnet-20240229"
+  }
+}

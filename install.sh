@@ -136,6 +136,13 @@ info "Installing npm deps..."
 npm install --prefix "$INSTALL_DIR" --silent
 ok "npm deps ready"
 
+# Install Python deps (anthropic SDK for the finance agent)
+info "Installing Python deps (anthropic)..."
+python3 -m pip install --user --quiet --upgrade anthropic 2>/dev/null \
+  || pip3 install --user --quiet --upgrade anthropic 2>/dev/null \
+  || warn "Could not install 'anthropic' — run: pip3 install anthropic  (needed for 'kickbacks finance')"
+ok "Python deps ready"
+
 # ── Test project ──────────────────────────────────────────────────────────────
 section "Test project"
 mkdir -p "$TESTPROJ/src"
@@ -248,6 +255,9 @@ ANTHROPIC_AUTH_TOKEN=kickbacks-proxy
 LEDGER_PATH=$HOME/kickbacks_ledger.jsonl
 CLAUDE_WORKDIR=$TESTPROJ
 PROXY_PORT=5555
+# Optional: real Anthropic key for 'kickbacks finance' (AI P&L analysis).
+# Leave blank to skip the finance agent. Get one at https://console.anthropic.com
+ANTHROPIC_API_KEY=
 ENV
   chmod 600 "$ENV_FILE"
   ok ".env written to $ENV_FILE"
@@ -388,6 +398,10 @@ case "${1:-help}" in
   snapshot)
     python3 "$INSTALL_DIR/tracker/current_cost_report.py"
     ;;
+  finance)
+    # AI-powered P&L analysis. Pass --json for raw JSON, --model to override.
+    ( cd "$INSTALL_DIR" && python3 -m finance.agent "${@:2}" )
+    ;;
   logs)
     TARGET="${2:-proxy}"
     case "$TARGET" in
@@ -432,6 +446,7 @@ case "${1:-help}" in
     echo "  kickbacks stats          Live proxy stats (JSON)"
     echo "  kickbacks dashboard      Full P&L dashboard"
     echo "  kickbacks snapshot       Quick cost/revenue snapshot"
+    echo "  kickbacks finance        AI P&L analysis (--json, --model NAME)"
     echo "  kickbacks report         Per-query detail (--date YYYY-MM-DD --csv out.csv)"
     echo "  kickbacks logs proxy     Tail proxy log"
     echo "  kickbacks logs brake     Tail coffee brake log"

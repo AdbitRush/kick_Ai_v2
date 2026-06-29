@@ -15,6 +15,37 @@ CPM = float(os.getenv("KICKBACKS_CPM", "5.0"))
 IMPRESSION_INTERVAL = 5  # seconds per impression
 
 
+def _think_sec(e: dict) -> float:
+    """Thinking time in seconds. The proxy/coffee-brake write `thinking_ms`
+    (milliseconds); older entries may carry `duration_sec`. Support both."""
+    if "thinking_ms" in e and e.get("thinking_ms") is not None:
+        try:
+            return float(e["thinking_ms"]) / 1000.0
+        except (TypeError, ValueError):
+            return 0.0
+    try:
+        return float(e.get("duration_sec", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _ts(e: dict) -> str:
+    """Timestamp string. Proxy writes `ts`; legacy data may use `timestamp`."""
+    return e.get("ts") or e.get("timestamp") or ""
+
+
+def _model(e: dict) -> str:
+    """Model name. Proxy writes `model_actual`; legacy data may use `model`."""
+    return e.get("model_actual") or e.get("model") or "unknown"
+
+
+def _is_free(e: dict) -> bool:
+    """A query is free if explicitly flagged free, or has zero cost."""
+    if "free" in e:
+        return bool(e.get("free"))
+    return float(e.get("cost_usd", 0.0) or 0.0) == 0.0
+
+
 def _load(ledger_path: str | Path | None = None) -> list[dict]:
     path = Path(ledger_path or os.getenv("LEDGER_PATH", str(DEFAULT_LEDGER)))
     if not path.exists():
@@ -38,11 +69,11 @@ def compute_stats(ledger_path: str | Path | None = None) -> dict[str, Any]:
         return {"error": "No ledger data found", "entries": 0}
 
     total_queries = len(entries)
-    free_queries = sum(1 for e in entries if e.get("cost_usd", 0) == 0)
+    free_queries = sum(1 for e in entries if _is_free(e))
     paid_queries = total_queries - free_queries
 
-    total_cost = sum(e.get("cost_usd", 0.0) for e in entries)
-    total_think_sec = sum(e.get("duration_sec", 0.0) for e in entries)
+    total_cost = sum(float(e.get("cost_usd", 0.0) or 0.0) for e in entries)
+    total_think_sec = sum(_think_sec(e) for e in entries)
     total_impressions = int(total_think_sec / IMPRESSION_INTERVAL)
     gross_revenue = (total_impressions / 1000) * CPM
     net_revenue = gross_revenue * 0.5  # Kickbacks.ai 50% share
@@ -51,28 +82,37 @@ def compute_stats(ledger_path: str | Path | None = None) -> dict[str, Any]:
     # per-model breakdown
     by_model: dict[str, dict] = defaultdict(lambda: {"queries": 0, "think_sec": 0.0, "cost": 0.0})
     for e in entries:
-        m = e.get("model", "unknown")
+        m = _model(e)
         by_model[m]["queries"] += 1
-        by_model[m]["think_sec"] += e.get("duration_sec", 0.0)
-        by_model[m]["cost"] += e.get("cost_usd", 0.0)
+        by_model[m]["think_sec"] += _think_sec(e)
+        by_model[m]["cost"] += float(e.get("cost_usd", 0.0) or 0.0)
 
     # daily breakdown
     by_day: dict[str, dict] = defaultdict(lambda: {"queries": 0, "think_sec": 0.0, "cost": 0.0})
     for e in entries:
-        ts = e.get("timestamp", "")
+        ts = _ts(e)
         day = ts[:10] if ts else "unknown"
         by_day[day]["queries"] += 1
-        by_day[day]["think_sec"] += e.get("duration_sec", 0.0)
-        by_day[day]["cost"] += e.get("cost_usd", 0.0)
+        by_day[day]["think_sec"] += _think_sec(e)
+        by_day[day]["cost"] += float(e.get("cost_usd", 0.0) or 0.0)
 
     # last 24h
     now = datetime.now(tz=timezone.utc)
-    recent = [
-        e for e in entries
-        if e.get("timestamp") and
-        (now - datetime.fromisoformat(e["timestamp"].replace("Z", "+00:00"))).total_seconds() < 86400
-    ]
-    recent_impressions = int(sum(e.get("duration_sec", 0.0) for e in recent) / IMPRESSION_INTERVAL)
+
+    def _recent(e: dict) -> bool:
+        ts = _ts(e)
+        if not ts:
+            return False
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        except ValueError:
+            return False
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return (now - dt).total_seconds() < 86400
+
+    recent = [e for e in entries if _recent(e)]
+    recent_impressions = int(sum(_think_sec(e) for e in recent) / IMPRESSION_INTERVAL)
 
     avg_think_sec = total_think_sec / total_queries if total_queries else 0
 

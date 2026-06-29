@@ -80,5 +80,46 @@ def fetch_balance():
                 raise RuntimeError("Login page does not contain email/password fields. אפשר לשקול התחברות דרך Google, שדורשת תהליך OAuth חיצוני.")
         # חיפוש אלמנט המצביע על ה‑balance – משערים class בשם balance או data-testid
         balance_el = page.query_selector('.balance') or page.query_selector('[data-testid="balance"]')
-        if not balance_el:
-            # fallback – נסה לחפש טקסט שמתחיל במטבע $ או ש"""
+        balance_text = None
+        if balance_el:
+            balance_text = (balance_el.inner_text() or '').strip()
+        else:
+            # fallback – נסה לחפש טקסט שמתחיל במטבע $ או ש"ח בכל הדף
+            import re
+            body_text = page.inner_text('body')
+            m = re.search(r'[$₪]\s?\d[\d,]*\.?\d*', body_text)
+            if m:
+                balance_text = m.group(0).strip()
+
+        # ניתוח הערך המספרי מתוך הטקסט
+        balance_value = None
+        if balance_text:
+            import re
+            num = re.search(r'[\d,]+\.?\d*', balance_text)
+            if num:
+                try:
+                    balance_value = float(num.group(0).replace(',', ''))
+                except ValueError:
+                    balance_value = None
+
+        browser.close()
+
+        return {
+            'balance_raw':   balance_text,
+            'balance_value': balance_value,
+            'fetched_at':    __import__('datetime').datetime.utcnow().isoformat() + 'Z',
+            'ok':            balance_text is not None,
+        }
+
+
+if __name__ == '__main__':
+    try:
+        result = fetch_balance()
+    except Exception as e:
+        result = {'ok': False, 'error': str(e),
+                  'fetched_at': __import__('datetime').datetime.utcnow().isoformat() + 'Z'}
+
+    with open(OUTFILE, 'w', encoding='utf-8') as f:
+        json.dump(result, f, ensure_ascii=False, indent=2)
+
+    print(f"Saved balance result to {OUTFILE}: {result}")

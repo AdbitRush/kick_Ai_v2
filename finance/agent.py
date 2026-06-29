@@ -17,7 +17,7 @@ import anthropic
 from finance.ledger import compute_stats
 from finance.projections import project
 
-MODEL = os.getenv("FINANCE_AGENT_MODEL", "claude-haiku-4-5-20251001")
+MODEL = os.getenv("FINANCE_AGENT_MODEL", "claude-sonnet-4-6")
 
 _SYSTEM = """\
 You are a quantitative financial analyst specializing in digital arbitrage systems.
@@ -55,7 +55,7 @@ Respond in strict JSON only — no prose before or after:
 }"""
 
 
-def analyze(ledger_path: str | None = None, as_json: bool = False) -> dict:
+def analyze(ledger_path: str | None = None, as_json: bool = False, model: str | None = None) -> dict:
     api_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
     if not api_key:
         raise RuntimeError("ANTHROPIC_API_KEY not set")
@@ -71,9 +71,13 @@ def analyze(ledger_path: str | None = None, as_json: bool = False) -> dict:
         "math_projections": proj,
     }
 
-    client = anthropic.Anthropic(api_key=api_key)
+    # The kickbacks .env points ANTHROPIC_BASE_URL at the local free-model proxy
+    # so `claude` routes through it. The finance agent must talk to the REAL
+    # Anthropic API, so override base_url explicitly (env var would hijack it).
+    base_url = os.getenv("FINANCE_ANTHROPIC_BASE_URL", "https://api.anthropic.com")
+    client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
     response = client.messages.create(
-        model=MODEL,
+        model=model or MODEL,
         max_tokens=2048,
         system=_SYSTEM,
         messages=[{
@@ -162,9 +166,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Kickbacks Finance Agent — AI P&L analysis")
     parser.add_argument("--json", action="store_true", help="Output raw JSON instead of formatted report")
     parser.add_argument("--ledger", help="Path to ledger file (default: ~/kickbacks_ledger.jsonl)")
+    parser.add_argument("--model", help=f"Claude model to use (default: {MODEL})")
     args = parser.parse_args()
 
-    result = analyze(ledger_path=args.ledger, as_json=args.json)
+    result = analyze(ledger_path=args.ledger, as_json=args.json, model=args.model)
 
     if args.json:
         print(json.dumps(result, indent=2))

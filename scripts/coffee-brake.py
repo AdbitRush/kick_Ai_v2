@@ -6,13 +6,15 @@ Runs `claude -p "query"` through the proxy in bursts with jittered timing.
 Mimics real developer work patterns: burst of queries → coffee break → repeat.
 
 Usage:
-  python3 scripts/coffee-brake.py              # single query now
-  python3 scripts/coffee-brake.py --daemon     # continuous loop
-  python3 scripts/coffee-brake.py --health     # check if daemon is running
-  python3 scripts/coffee-brake.py --stop       # stop the daemon
+  python3 scripts/coffee-brake.py                  # single query now
+  python3 scripts/coffee-brake.py --daemon         # continuous loop
+  python3 scripts/coffee-brake.py --queries 10     # run exactly 10 queries then stop
+  python3 scripts/coffee-brake.py --interval 60 300  # override gap timing (seconds)
+  python3 scripts/coffee-brake.py --health         # check if daemon is running
+  python3 scripts/coffee-brake.py --stop           # stop the daemon
 """
 
-import subprocess, json, random, time, datetime, os, sys, signal, atexit
+import subprocess, json, random, time, datetime, os, sys, signal, atexit, argparse
 
 WORKDIR  = os.environ.get('CLAUDE_WORKDIR', '/tmp/testproj')
 LEDGER   = os.environ.get('LEDGER_PATH', '/tmp/kickbacks_ledger.jsonl')
@@ -71,6 +73,9 @@ COFFEE_BREAK    = (180, 900)    # seconds between bursts (3-15 min)
 LONG_BREAK_EVERY = (5, 10)      # take a long break every N bursts
 LONG_BREAK      = (1800, 7200)  # 30min-2h (lunch, meeting)
 
+# Optional hard caps set from the CLI
+MAX_QUERIES     = None          # if set, stop after this many queries
+
 runs = 0; total_ms = 0; burst_count = 0
 is_running = False; start_time = time.time()
 
@@ -109,11 +114,17 @@ def run_query(query):
     elapsed_ms = int((time.time() - t0) * 1000)
     runs += 1; total_ms += elapsed_ms
 
+    # Field names match what the proxy writes so the finance module can read
+    # both sources: ts / thinking_ms / model_actual / free, plus duration_sec
+    # for backward compatibility.
     with open(LEDGER, 'a') as f:
         f.write(json.dumps({
             'ts': datetime.datetime.utcnow().isoformat(),
             'q': runs, 'type': 'coffee_brake', 'depth': depth,
-            'thinking_ms': elapsed_ms, 'cost_usd': 0.0,
+            'model_actual': 'coffee_brake', 'free': True,
+            'thinking_ms': elapsed_ms,
+            'duration_sec': round(elapsed_ms / 1000.0, 3),
+            'cost_usd': 0.0,
             'query_preview': query[:80],
         }) + '\n')
 
@@ -149,7 +160,11 @@ def run_daemon():
 
         for i in range(size):
             if not is_running: break
+            if MAX_QUERIES is not None and runs >= MAX_QUERIES:
+                print(f"\nReached --queries {MAX_QUERIES} limit."); stop(); break
             run_query(pick_query())
+            if MAX_QUERIES is not None and runs >= MAX_QUERIES:
+                stop(); break
             if i < size - 1 and is_running:
                 gap = jitter(random.uniform(*BURST_GAP))
                 print(f"  next in {gap:.0f}s")
@@ -178,14 +193,40 @@ def stop():
     print("\nStopping..."); is_running = False
 
 
+def run_count(n):
+    """Run exactly N queries with jittered burst-gap timing, then stop."""
+    global is_running, start_time
+    is_running = True; start_time = time.time()
+    signal.signal(signal.SIGINT,  lambda s, f: stop())
+    signal.signal(signal.SIGTERM, lambda s, f: stop())
+    print(f"Running {n} queries then stopping.")
+    for i in range(n):
+        if not is_running: break
+        run_query(pick_query())
+        if i < n - 1 and is_running:
+            gap = jitter(random.uniform(*BURST_GAP))
+            print(f"  next in {gap:.0f}s")
+            _sleep(gap)
+    print("\nDone."); status()
+
+
 if __name__ == '__main__':
-    args = sys.argv[1:]
+    p = argparse.ArgumentParser(description="Coffee Brake — impression generator")
+    p.add_argument('--daemon', action='store_true', help='Run continuous burst loop')
+    p.add_argument('--stop', action='store_true', help='Stop the running daemon')
+    p.add_argument('--health', action='store_true', help='Check daemon + ledger summary')
+    p.add_argument('--queries', type=int, metavar='N', help='Run exactly N queries then stop')
+    p.add_argument('--interval', type=float, nargs=2, metavar=('MIN', 'MAX'),
+                   help='Override seconds between queries (BURST_GAP)')
+    args = p.parse_args()
 
-    if '--daemon' in args:
-        os.makedirs(WORKDIR, exist_ok=True)
-        run_daemon()
+    if args.interval:
+        BURST_GAP = (args.interval[0], args.interval[1])
+        print(f"Burst gap overridden to {BURST_GAP[0]:.0f}-{BURST_GAP[1]:.0f}s")
+    if args.queries is not None:
+        MAX_QUERIES = args.queries
 
-    elif '--stop' in args:
+    if args.stop:
         if os.path.exists(PID_FILE):
             pid = int(open(PID_FILE).read().strip())
             try: os.kill(pid, signal.SIGTERM); print(f"Stopped PID {pid}")
@@ -193,7 +234,7 @@ if __name__ == '__main__':
             os.remove(PID_FILE)
         else: print("No daemon running")
 
-    elif '--health' in args:
+    elif args.health:
         if os.path.exists(PID_FILE):
             pid = int(open(PID_FILE).read().strip())
             alive = os.path.exists(f'/proc/{pid}') if os.name != 'nt' else True
@@ -205,6 +246,14 @@ if __name__ == '__main__':
             if cb:
                 ms = sum(l.get('thinking_ms',0) for l in cb)
                 print(f"{len(cb)} queries via coffee-brake | {ms/1000:.0f}s thinking | est ${ms/5000*0.0025:.4f}")
+
+    elif args.daemon:
+        os.makedirs(WORKDIR, exist_ok=True)
+        run_daemon()
+
+    elif args.queries is not None:
+        os.makedirs(WORKDIR, exist_ok=True)
+        run_count(args.queries)
 
     else:
         os.makedirs(WORKDIR, exist_ok=True)
