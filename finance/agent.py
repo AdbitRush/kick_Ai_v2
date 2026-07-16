@@ -76,8 +76,9 @@ def analyze(ledger_path: str | None = None, as_json: bool = False, model: str | 
     # Anthropic API, so override base_url explicitly (env var would hijack it).
     base_url = os.getenv("FINANCE_ANTHROPIC_BASE_URL", "https://api.anthropic.com")
     client = anthropic.Anthropic(api_key=api_key, base_url=base_url)
+    used_model = model or MODEL
     response = client.messages.create(
-        model=model or MODEL,
+        model=used_model,
         max_tokens=2048,
         system=_SYSTEM,
         messages=[{
@@ -88,6 +89,18 @@ def analyze(ledger_path: str | None = None, as_json: bool = False, model: str | 
             ),
         }],
     )
+
+    # Report usage to the central abri-brain ledger (best-effort, never blocks).
+    try:
+        try:
+            from finance.usage_report import report as _report_usage
+        except Exception:
+            from usage_report import report as _report_usage  # run from inside finance/
+        _u = getattr(response, "usage", None)
+        _report_usage(used_model, getattr(_u, "input_tokens", 0),
+                      getattr(_u, "output_tokens", 0), feature="finance")
+    except Exception:
+        pass
 
     raw = response.content[0].text.strip()
     # strip markdown code fences if present
