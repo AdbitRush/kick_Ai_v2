@@ -1,7 +1,18 @@
 {
-  "default_model": "nvidia/nemotron-3-ultra-550b-a55b:free",
-  "paid_models": {
-    "gpt4o": "openrouter/openai/gpt-4o",
-    "claude3sonnet": "anthropic/claude-3-sonnet-20240229"
-  }
+  "_comment": [
+    "Free models only. The engine's premise is that every query costs nothing —",
+    "the revenue is the Kickbacks.ai ad share, not a margin on inference — so a",
+    "billed endpoint here would not be an upgrade, it would be a loss.",
+    "",
+    "A 'paid_models' block used to sit here listing openrouter/openai/gpt-4o and",
+    "anthropic/claude-3-sonnet-20240229. Nothing in the repo ever read it, so it",
+    "was dead config, but it was also the one place a paid slug could be picked",
+    "up by someone wiring in a new caller. Removed on 2026-08-14 so 'total free'",
+    "is true by construction rather than by nobody having referenced it yet.",
+    "",
+    "The live race list is FREE_MODELS in proxy/arbitrage.py, not this file.",
+    "Verify slugs before trusting them:",
+    "  curl -s https://openrouter.ai/api/v1/models | grep ':free'"
+  ],
+  "default_model": "nvidia/nemotron-3-ultra-550b-a55b:free"
 }

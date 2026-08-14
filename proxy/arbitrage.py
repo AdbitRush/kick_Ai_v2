@@ -44,15 +44,30 @@ STATUS_FILE = os.environ.get(
     os.path.join(os.path.expanduser('~'), 'kickbacks_status.txt'),
 )
 
-# Largest free models = slowest responses = most ad impressions per query
+# Largest free models = slowest responses = most ad impressions per query.
+#
+# Checked against https://openrouter.ai/api/v1/models on 2026-08-14: four of the
+# five slugs previously listed here had been retired and returned nothing —
+# llama-3.3-70b-instruct:free, qwen3-coder:free, qwen-2.5-72b-instruct:free and
+# deepseek-chat-v3-5:free. Only the nemotron ultra was still real, so the race
+# was firing four dead requests per query and the "last resort" was dead too.
+#
+# Re-verify before assuming a failure is a bug: OpenRouter retires free slugs
+# regularly, and a retired slug looks exactly like a rate-limited one from here.
+#   curl -s https://openrouter.ai/api/v1/models | grep ':free'
+#
+# Ordered largest first, which is also slowest first, which is the point.
 FREE_MODELS = [
-    "nvidia/nemotron-3-ultra-550b-a55b:free",
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "qwen/qwen3-coder:free",
-    "qwen/qwen-2.5-72b-instruct:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",   # 550B, 1M ctx
+    "nvidia/nemotron-3-super-120b-a12b:free",   # 120B, 262k
+    "google/gemma-4-31b-it:free",               #  31B, 262k
+    "nvidia/nemotron-3-nano-30b-a3b:free",      #  30B, 256k
+    "openai/gpt-oss-20b:free",                  #  20B, 131k
 ]
-PAID_MODEL      = "deepseek/deepseek-chat-v3-5:free"  # free tier, last resort
-PAID_COST_PER_M = (0.27 / 1e6, 1.10 / 1e6)           # DeepSeek paid pricing if needed
+# Last resort only. Also a :free slug — nothing in this proxy may reach a billed
+# endpoint, which is the whole premise of the engine.
+PAID_MODEL      = "nvidia/nemotron-nano-9b-v2:free"
+PAID_COST_PER_M = (0.0, 0.0)                    # free tier: nothing is billed
 
 # Race all healthy free models at once; first to succeed wins.
 CONCURRENT_RACE = os.environ.get('CONCURRENT_RACE', '1') not in ('0', 'false', 'False')
